@@ -1,6 +1,6 @@
-# auto-video-cutter
+# Auto Video Cutter
 
-Automatic video cutter para Shorts / Reels / TikTok  
+Cortes automáticos de vídeos para Shorts / Reels / TikTok  
 CPU-only, determinístico — pipeline batch assíncrono para gerar vídeos verticais a partir de vídeos longos sem edição manual.
 
 ## Sumário
@@ -114,7 +114,7 @@ Exemplo:
 ### 5.4 Segmentação (heurística)
 Objetivo: cortes coerentes sem ML pesado.
 Regras:
-- Duração alvo por short: 30–60s
+- Duração alvo definida pelo perfil ativo (ex.: short 30–60s, medium 3–8min)
 - Preferir cortes em pontuação final (. ? !)
 - Ignorar segmentos muito curtos
 - Agrupar frases consecutivas quando necessário
@@ -143,6 +143,31 @@ Exemplo (esquemático) filter_complex:
 - escala do background → blur
 - escala e crop do foreground → overlay
 - ass burn-in → mapa de saída
+
+## 5.7 Perfis de corte (Short / Medium / Long)
+
+O pipeline não é restrito a shorts.  
+A lógica de segmentação e renderização é **parametrizada por perfil de saída**.
+
+Cada perfil define:
+- duração mínima/máxima do segmento
+- aspect ratio
+- estratégia visual (blur ou original)
+- estilo de legenda
+
+Exemplo conceitual de perfis:
+
+- Short:
+  - duração: 30–60s
+  - aspect: 9:16
+  - visual: scale + blur background
+
+- Medium:
+  - duração: 3–8 minutos
+  - aspect: 16:9
+  - visual: vídeo original (sem blur)
+
+A arquitetura permanece a mesma; apenas parâmetros de segmentação e renderização variam.
 
 ---
 
@@ -207,10 +232,3 @@ Decisão intencional para simplicidade, previsibilidade e performance em CPUs.
 - FFmpeg > processamento frame-a-frame em Python
 - Heurística primeiro, IA depois
 - Automatizar fluxos ao invés de “embelezar” manualmente
-
----
-
-Se desejar, posso gerar:
-- Exemplo de comando FFmpeg filter_complex usado pelo renderer
-- Template de .env e systemd / docker-compose para produção
-- Script de ingest CLI
