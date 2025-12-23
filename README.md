@@ -195,7 +195,43 @@ ENABLE_LLM=false
 
 ---
 
-## 8. Execução (rápido)
+## 8. Requisitos de execução
+
+### Obrigatórios
+
+- Sistema operacional:
+  - Linux (recomendado)
+  - macOS (suportado)
+  - Windows (via Docker ou WSL2)
+
+- Runtime:
+  - Python 3.11+
+  - FFmpeg (build com suporte a libx264)
+
+- Hardware:
+  - CPU com suporte a AVX (recomendado)
+  - 8 GB RAM (mínimo funcional)
+
+- Serviços:
+  - Redis (para fila de jobs)
+
+### Opcionais
+
+- GPU:
+  - Não necessária
+  - Pode ser usada futuramente para acelerar Whisper (fora do escopo atual)
+
+- Docker:
+  - Recomendado para ambiente reprodutível
+  - Não obrigatório
+
+- LLM local:
+  - Ollama (desativado por padrão)
+  - Usado apenas como extensão futura para seleção de cortes
+
+---
+
+## 9. Execução (rápido)
 Com Docker Compose (exemplo):
 - docker-compose up --build
 - Enfileirar jobs via CLI: python main.py ingest /path/to/input.mp4
@@ -208,7 +244,7 @@ Sem Docker:
 
 ---
 
-## 9. O que o projeto não faz (por design)
+## 10. O que o projeto não faz (por design)
 - Editor visual
 - Face tracking
 - Animação complexa de legendas
@@ -219,7 +255,7 @@ Decisão intencional para simplicidade, previsibilidade e performance em CPUs.
 
 ---
 
-## 10. Extensões futuras (plugáveis)
+## 11. Extensões futuras (plugáveis)
 - LLM para seleção/agrupamento de cortes
 - Ranking de segmentos
 - Upload automático (YouTube / TikTok)
@@ -227,7 +263,7 @@ Decisão intencional para simplicidade, previsibilidade e performance em CPUs.
 
 ---
 
-## 11. Princípios de engenharia
+## 12. Princípios de engenharia
 - Determinismo > hype
 - FFmpeg > processamento frame-a-frame em Python
 - Heurística primeiro, IA depois
