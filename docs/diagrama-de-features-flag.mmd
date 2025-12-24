@@ -1,0 +1,7 @@
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+flowchart TD
+    A[Transcript] --> B{ENABLE_LLM?}
+    B -- false --> C[Heuristic Segmenter]
+    B -- true --> D[LLM Selector]
+    C --> E[Segments]
+    D --> E

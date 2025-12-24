@@ -1,0 +1,11 @@
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+flowchart LR
+    A[Whisper JSON<br/>phrases + timestamps] --> B[Group phrases]
+    B --> C{Duration < min?}
+    C -- Yes --> B
+    C -- No --> D{Ends with . ? !}
+    D -- No --> B
+    D -- Yes --> E{Duration > max?}
+    E -- Yes --> F[Close segment]
+    E -- No --> B
+    F --> G[Save segment]

@@ -1,0 +1,17 @@
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+flowchart TD
+    A[Input Video Segment] --> B[Split Video]
+    B --> C[Background Path]
+    B --> D[Foreground Path]
+
+    C --> C1[Scale to 9:16]
+    C1 --> C2[Crop]
+    C2 --> C3[Box Blur]
+
+    D --> D1[Scale to Fit]
+
+    C3 --> E[Overlay]
+    D1 --> E
+
+    E --> F[Burn-in Subtitles<br/>ASS]
+    F --> G[Final Output MP4]

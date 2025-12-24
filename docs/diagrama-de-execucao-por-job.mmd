@@ -1,0 +1,18 @@
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+sequenceDiagram
+    participant CLI as CLI / API
+    participant RQ as Redis Queue
+    participant W as Worker
+    participant FS as Filesystem
+
+    CLI->>RQ: enqueue(job_id)
+    RQ->>W: dispatch job
+    W->>FS: save input.mp4
+    W->>FS: extract audio.wav
+    W->>FS: generate transcript.json
+    W->>FS: generate segments.json
+    loop for each segment
+        W->>FS: generate subtitles.ass
+        W->>FS: render short.mp4
+    end
+    W->>RQ: job finished

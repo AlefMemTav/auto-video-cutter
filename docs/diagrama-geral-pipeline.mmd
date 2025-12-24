@@ -1,0 +1,9 @@
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+flowchart TD
+    A[Input Video<br/>MP4/MKV] --> B[Ingest<br/>job_id + storage]
+    B --> C[Extract Audio<br/>ffmpeg]
+    C --> D[Transcription<br/>faster-whisper]
+    D --> E[Segmenter<br/>heurística]
+    E --> F[Subtitle Generator<br/>.ass]
+    F --> G[Renderer<br/>ffmpeg filter_complex]
+    G --> H[Outputs<br/>Shorts / Cuts]

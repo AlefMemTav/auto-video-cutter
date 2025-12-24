@@ -1,0 +1,9 @@
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+flowchart TD
+
+    A[Segment] --> B{Profile}
+    B -->|Short| C[9:16<br/>Blur ON<br/>30-60s]
+    B -->|Medium| D[16:9<br/>Blur OFF<br/>3-8min]
+
+    C --> E[Renderer]
+    D --> E
