@@ -40,14 +40,22 @@ flowchart TD
     G --> H[Outputs<br/>Shorts / Cuts]
 ```
 
+
+```
 Input Video
-→ Ingest
-→ Audio Extraction
-→ Transcription (Whisper)
-→ Segmenter (heurística)
-→ Subtitles (.ASS)
-→ Renderer (FFmpeg filter_complex)
-→ Shorts Outputs
+   ↓
+Ingest
+   ↓
+Audio Extraction
+   ↓
+Transcription (Whisper)
+   ↓
+Segmenter (heurística)
+   ↓
+Renderer (FFmpeg)
+   ↓
+Shorts Outputs
+```
 
 Características:
 - Arquitetura batch
