@@ -27,6 +27,19 @@ Principais restrições: sem GPU, sem tracking facial, sem frontend obrigatório
 ---
 
 ## 2. Visão geral da arquitetura
+
+```mermaid
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+flowchart TD
+    A[Input Video<br/>MP4/MKV] --> B[Ingest<br/>job_id + storage]
+    B --> C[Extract Audio<br/>ffmpeg]
+    C --> D[Transcription<br/>faster-whisper]
+    D --> E[Segmenter<br/>heurística]
+    E --> F[Subtitle Generator<br/>.ass]
+    F --> G[Renderer<br/>ffmpeg filter_complex]
+    G --> H[Outputs<br/>Shorts / Cuts]
+```
+
 Input Video
 → Ingest
 → Audio Extraction
@@ -145,6 +158,17 @@ Exemplo (esquemático) filter_complex:
 - ass burn-in → mapa de saída
 
 ## 5.7 Perfis de corte (Short / Medium / Long)
+
+```mermaid
+%%{init: {"theme":"base", "themeVariables": {"background":"#ffffff"}}}%%
+flowchart TD
+    A[Segment] --> B{Profile}
+    B -->|Short| C[9:16<br/>Blur ON<br/>30-60s]
+    B -->|Medium| D[16:9<br/>Blur OFF<br/>3-8min]
+
+    C --> E[Renderer]
+    D --> E
+```
 
 O pipeline não é restrito a shorts.  
 A lógica de segmentação e renderização é **parametrizada por perfil de saída**.
