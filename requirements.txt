@@ -1,0 +1,13 @@
+# Core
+pydantic-settings
+python-dotenv
+requests
+
+# Media Processing
+yt-dlp
+ffmpeg-python
+faster-whisper
+
+# Queue and Jobs
+redis
+rq
