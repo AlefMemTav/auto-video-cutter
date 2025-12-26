@@ -100,14 +100,15 @@ auto-video-cutter/
 │       ├── segments.json
 │       ├── subtitles/segment_01.ass
 │       └── outputs/short_01.mp4
+├── inputs/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── worker_service.py
 ├── main.py
 ├── requirements.txt
+├── pyproject.toml
 ├── docs/
 ├── .gitignore
-├── pyproject.toml
 └── README.md
 ```
 
