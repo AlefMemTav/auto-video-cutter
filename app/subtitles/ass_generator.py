@@ -24,7 +24,9 @@ def generate_ass_header(
     font_size=85, 
     primary_color="#FFFF00", 
     outline_color="#000000", 
-    margin_v=250
+    margin_v=250,
+    play_res_x=1080,
+    play_res_y=1920
 ) -> str:
     
     ass_primary = hex_to_ass_color(primary_color)
@@ -32,8 +34,8 @@ def generate_ass_header(
     
     return f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: {play_res_x}
+PlayResY: {play_res_y}
 WrapStyle: 1
 
 [V4+ Styles]
@@ -52,13 +54,18 @@ def create_ass_file(segment: Dict, output_path: Path, options: Dict = None):
     Gera o arquivo .ass quebrando as palavras em linhas curtas.
     """
     words = segment.get('words', [])
-    
+
+    res_x = options.get('res_x', 1080)
+    res_y = options.get('res_y', 1920)
+
     # Se não tiver dados de palavras (fallback), usa o texto cru
     if not words:
         start = seconds_to_ass_time(0)
         end = seconds_to_ass_time(segment['duration'])
         text = segment['text']
-        content = generate_ass_header()
+
+        content = generate_ass_header(play_res_x=res_x, play_res_y=res_y)
+
         content += f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n"
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -67,7 +74,9 @@ def create_ass_file(segment: Dict, output_path: Path, options: Dict = None):
     ass_content = generate_ass_header(
         font_size=options.get('font_size', 85),
         primary_color=options.get('text_color', '#FFFF00'),
-        margin_v=options.get('margin_v', 250)
+        margin_v=options.get('margin_v', 250),
+        play_res_x=res_x,
+        play_res_y=res_y
     )
     
     # --- Lógica de Agrupamento de Palavras (Caption Grouping) ---

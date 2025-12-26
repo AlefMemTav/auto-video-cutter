@@ -25,60 +25,51 @@ except Exception as e:
 
 # --- FUNÇÕES AUXILIARES ---
 
-def generate_preview(text_color, font_size, margin_v):
+def generate_preview(text_color, font_size, margin_v, is_vertical=True, show_text=True):
     """
-    Gera uma imagem dummy (9:16) simulando o Short final.
+    Gera preview 9:16 (Vertical) ou 16:9 (Horizontal)
     """
-    # 1. Dimensões do Short (1080x1920)
-    # Vamos reduzir a escala por 3 para o preview ficar rápido e leve na tela
     scale = 0.3
-    w_orig, h_orig = 1080, 1920
+    
+    if is_vertical:
+        w_orig, h_orig = 1080, 1920
+    else:
+        # Inverte para Horizontal
+        w_orig, h_orig = 1920, 1080 
+        
     w, h = int(w_orig * scale), int(h_orig * scale)
     
-    # Ajusta os tamanhos recebidos (que são baseados em 1080p) para a escala do preview
+    # Ajusta escala da fonte/margem
     preview_font_size = int(font_size * scale)
     preview_margin_v = int(margin_v * scale)
     
-    # 2. Cria o Canvas (Fundo Cinza Escuro simulando vídeo)
     img = Image.new('RGB', (w, h), color=(50, 50, 50))
     draw = ImageDraw.Draw(img)
     
-    # 3. Carrega a Fonte
-    # Tenta carregar a fonte do sistema Linux, se falhar usa a padrão
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", preview_font_size)
-    except IOError:
-        font = ImageFont.load_default()
+    # Lógica de Texto (Só executa se tiver legendas ativadas)
+    if show_text:
+        preview_font_size = int(font_size * scale)
+        preview_margin_v = int(margin_v * scale)
+        
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", preview_font_size)
+        except IOError:
+            font = ImageFont.load_default()
 
-    # 4. Texto de Exemplo
-    text = "Legenda de Exemplo\nDuas Linhas de Texto"
-    
-    # 5. Calcula Posição (Centralizado Horizontal, MarginV Vertical)
-    # No formato ASS, MarginV conta de baixo para cima
-    # Precisamos calcular o tamanho do texto para centralizar
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    
-    x = (w - text_w) / 2
-    y = h - preview_margin_v - text_h # De baixo para cima
+        text = "Legenda de Exemplo\nDuas Linhas de Texto"
+        
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        
+        x = (w - text_w) / 2
+        y = h - preview_margin_v - text_h 
 
-    # 6. Desenha o Texto (Com Borda Preta igual ao FFmpeg)
-    # stroke_width simula o Outline do ASS
-    outline_width = int(4 * scale) # 4 é o valor que usamos no gerador ASS
+        draw.text((x, y), text, font=font, fill=text_color, stroke_width=2, stroke_fill="black", align="center")
     
-    draw.text(
-        (x, y), 
-        text, 
-        font=font, 
-        fill=text_color, 
-        stroke_width=outline_width, 
-        stroke_fill="black",
-        align="center"
-    )
-    
-    # Desenha uma linha guia para mostrar onde é o fundo do vídeo
+    # Desenha uma linha guia vermelha (Frame seguro) sempre
     draw.line([(0, h-1), (w, h-1)], fill="red", width=2)
+    draw.line([(0, 0), (w, 0)], fill="red", width=2)
     
     return img
 
@@ -100,9 +91,10 @@ def get_options():
         "max_duration": max_duration,
         "text_color": text_color,
         "font_size": font_size,
-        "margin_v": pos_vertical
+        "margin_v": pos_vertical,
+        "format": "vertical" if "Short" in video_format else "horizontal",
+        "use_subs": use_subtitles
     }
-
 def enqueue_job(source):
     """Envia o trabalho para o Worker"""
     # Importante: Importar a função dentro do job para evitar erro de pickling
@@ -121,26 +113,76 @@ def enqueue_job(source):
 with st.sidebar:
     st.header("⚙️ Configurações de Corte")
     
-    with st.expander("⏱️ Duração e Tempo", expanded=False):
-            min_duration = st.slider("Mínimo (segundos)", 10, 60, 30)
-            max_duration = st.slider("Máximo (segundos)", 30, 180, 60)
+    # SELEÇÃO DE FORMATO (Com Callback para atualizar tempos)
+    st.subheader("📐 Formato do Vídeo")
+    
+    # Função que roda quando o usuário muda o rádio
+    def update_slider_defaults():
+        fmt = st.session_state.video_format
+        if fmt == "Short (9:16)":
+            st.session_state.min_val = 30
+            st.session_state.max_val = 60
+            st.session_state.subs_default = True
+        else: # Medium (16:9)
+            st.session_state.min_val = 60
+            st.session_state.max_val = 180
+            st.session_state.subs_default = False
+
+    # Inicializa estado se não existir
+    if 'min_val' not in st.session_state: st.session_state.min_val = 30
+    if 'max_val' not in st.session_state: st.session_state.max_val = 60
+
+    video_format = st.radio(
+        "Escolha o tipo de saída:",
+        ["Short (9:16)", "Medium (16:9)"],
+        key="video_format",
+        on_change=update_slider_defaults
+    )
     
     st.divider()
-    
-    st.subheader("🎨 Legendas")
-    text_color = st.color_picker("Cor do Texto", "#FFFF00") # Amarelo
-    font_size = st.slider("Tamanho da Fonte", 40, 120, 85)
-    
-    # Margin V: Quanto maior, mais alto a legenda fica
-    pos_vertical = st.slider("Posição Vertical (Margin Bottom)", 50, 600, 250)
 
+    with st.expander("⏱️ Duração e Tempo", expanded=True):
+        # Usamos 'key' para vincular ao session_state e permitir alteração automática
+        min_duration = st.slider("Mínimo (segundos)", 10, 300, key="min_val")
+        max_duration = st.slider("Máximo (segundos)", 30, 600, key="max_val")
+    
+    st.divider()
+    st.header("🎨 Legendas")
+    
+    # NOVO CHECKBOX
+    use_subtitles = st.checkbox("Adicionar Legendas Queimadas", key="subs_default")
+    
+    # Só mostra configurações de cor se a legenda estiver ativada
+    if use_subtitles:
+        text_color = st.color_picker("Cor do Texto", "#FFFF00") 
+        font_size = st.slider("Tamanho da Fonte", 30, 150, 85)
+        pos_vertical = st.slider("Posição Vertical", 50, 800, 150)
+    else:
+        # Valores dummy para não quebrar o código, mas não serão usados
+        text_color, font_size, pos_vertical = "#FFFF00", 85, 150
+    
+    # --- PREVIEW INTELIGENTE ---
     st.markdown("### 👁️ Preview em Tempo Real")
     
-    # Chamamos a função geradora passando os valores atuais dos sliders
-    preview_img = generate_preview(text_color, font_size, pos_vertical)
+    # Determina a orientação baseada no formato escolhido
+    is_vertical = "Short" in video_format
     
-    # Exibimos a imagem
-    st.image(preview_img)
+    # Gera o preview SEMPRE
+    # O parâmetro 'show_text' recebe o valor do checkbox. 
+    # Se for False, a função gera apenas o frame cinza com as linhas guia.
+    preview_img = generate_preview(
+        text_color, 
+        font_size, 
+        pos_vertical, 
+        is_vertical, 
+        show_text=use_subtitles
+    )
+    
+    # Exibe a imagem
+    st.image(preview_img, caption=f"Simulação ({video_format})", use_container_width=True)
+    
+    if not use_subtitles:
+        st.caption("ℹ️ Modo sem legendas (Clean Feed)")
 
 # --- LAYOUT DA INTERFACE ---
 
