@@ -1,3 +1,4 @@
+import datetime
 import streamlit as st
 import os
 import time
@@ -80,30 +81,70 @@ with tab2:
 
 # ABA 3: MONITORAMENTO SIMPLES
 with tab3:
-    st.header("Monitoramento")
+    st.header("📂 Histórico de Jobs")
     
-    # Se tivermos um ID na memória da sessão
-    last_id = st.session_state.get('last_job_id', '')
-    job_id_input = st.text_input("ID do Job para buscar:", value=last_id)
+    # 1. Listar pastas de Jobs
+    jobs_dir = settings.JOBS_DIR
     
-    if st.button("Atualizar Status"):
-        if job_id_input:
-            job_path = settings.get_job_path(job_id_input)
-            output_dir = job_path / "outputs"
+    # Verifica se a pasta existe
+    if jobs_dir.exists():
+        # Pega todas as subpastas
+        all_jobs = [f for f in jobs_dir.iterdir() if f.is_dir()]
+        
+        # Ordena por data de modificação (mais recente primeiro)
+        # Lambda explica: pega o status do arquivo (stat) e o tempo de modificação (st_mtime)
+        all_jobs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        # Cria uma lista formatada para o Selectbox
+        # Ex: "2023-12-26 15:30 - a1b2c3..."
+        job_options = {}
+        for j in all_jobs:
+            # Converte timestamp para data legível
+            ts = j.stat().st_mtime
+            date_str = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')
+            label = f"{date_str}  |  {j.name}"
+            job_options[label] = j.name # Guarda o ID real no dicionário
+        
+        if not job_options:
+            st.info("Nenhum job encontrado ainda.")
+        else:
+            # O Widget de Seleção
+            selected_label = st.selectbox("Selecione um Job:", list(job_options.keys()))
             
-            st.write(f"📂 Procurando em: `{output_dir}`")
+            # Recupera o ID baseado no label escolhido
+            selected_job_id = job_options[selected_label]
+            
+            st.divider()
+            
+            # Lógica de Exibição (igual antes, mas agora automática)
+            job_path = settings.get_job_path(selected_job_id)
+            output_dir = job_path / "outputs"
             
             if output_dir.exists():
                 videos = list(output_dir.glob("*.mp4"))
                 if videos:
-                    st.success(f"Encontrados {len(videos)} Shorts!")
+                    st.success(f"🎬 Encontrados {len(videos)} Shorts no job {selected_job_id}")
                     
+                    # Grid de vídeos
                     cols = st.columns(3)
                     for i, video_path in enumerate(videos):
                         with cols[i % 3]:
                             st.video(str(video_path))
-                            st.caption(video_path.name)
+                            st.caption(f"📺 {video_path.name}")
+                            
+                            # Botão de Download
+                            with open(video_path, "rb") as file:
+                                st.download_button(
+                                    label="⬇️ Baixar",
+                                    data=file,
+                                    file_name=video_path.name,
+                                    mime="video/mp4",
+                                    key=f"dl_{selected_job_id}_{i}"
+                                )
                 else:
-                    st.info("O Job existe, mas nenhum vídeo foi renderizado ainda. A IA deve estar trabalhando...")
+                    st.warning("⏳ O Job existe, mas os vídeos ainda não estão prontos. (Processando...)")
             else:
-                st.error("Pasta do Job não encontrada. Verifique o ID.")
+                st.error("❌ Pasta de outputs não encontrada (o Job falhou ou ainda está baixando).")
+            
+    else:
+        st.error("Pasta de Jobs não encontrada no sistema.")
