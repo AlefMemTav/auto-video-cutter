@@ -83,6 +83,7 @@ IA:
 ```
 auto-video-cutter/
 ├── app/
+│   ├── ui/             # user interface
 │   ├── ingest/         # criação do job e input
 │   ├── audio/          # extração de áudio
 │   ├── transcribe/     # faster-whisper

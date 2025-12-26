@@ -23,13 +23,16 @@ services:
 
   client:
     build: .
-    command: tail -f /dev/null
+    command: streamlit run app/ui/interface.py --server.address=0.0.0.0
     depends_on:
       - redis
     volumes:
       - .:/app
     environment:
       - REDIS_HOST=redis
+      - PYTHONPATH=/app
+    ports:
+      - "8501:8501"
     deploy:
       resources:
         reservations:
