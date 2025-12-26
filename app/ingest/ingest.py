@@ -1,7 +1,7 @@
 import yt_dlp
 import logging
 from pathlib import Path
-from app.settings import settings
+from app.config.settings import settings
 
 # Configuração básica de log
 logging.basicConfig(level=logging.INFO)

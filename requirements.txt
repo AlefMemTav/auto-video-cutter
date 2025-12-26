@@ -1,13 +1,15 @@
 # Core
-pydantic-settings
-python-dotenv
-requests
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+requests==2.32.3
 
 # Media Processing
 yt-dlp
-ffmpeg-python
-faster-whisper
+ffmpeg-python==0.2.0
+faster-whisper==1.0.3
 
 # Queue and Jobs
-redis
-rq
+redis==5.0.1
+rq==1.16.2
+async-timeout==4.0.3
+ctranslate2==4.4.0

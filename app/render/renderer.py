@@ -1,7 +1,7 @@
 import subprocess
 import logging
 from pathlib import Path
-from app.settings import settings
+from app.config.settings import settings
 from app.subtitles.ass_generator import create_ass_file
 
 logging.basicConfig(level=logging.INFO)

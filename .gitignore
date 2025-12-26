@@ -216,4 +216,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 # AudioVideoCutter Storage Files (for this project)
-/storage/
+app/storage/

@@ -1,87 +1,109 @@
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional
 import json
 import logging
-from pathlib import Path
-from app.settings import settings
+from app.config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configurações de tempo para Shorts (em segundos)
-MIN_DURATION = 30.0
-MAX_DURATION = 60.0
+# --- MODELOS DE DADOS ---
+@dataclass
+class Phrase:
+    start: float
+    end: float
+    text: str
+    words: List[Dict] = field(default_factory=list)
 
-def load_transcript(json_path: Path):
-    with open(json_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+@dataclass
+class Segment:
+    start: float
+    end: float
+    text: str
+    duration: float
+    words: List[Dict]
 
-def save_segments(segments, job_id: str):
-    job_folder = settings.get_job_path(job_id)
-    output_path = job_folder / "segments.json"
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(segments, f, ensure_ascii=False, indent=2)
-    return output_path
+# --- CLASSE DO SEGMENTADOR ---
+class Segmenter:
+    def __init__(self, min_duration: float = 30.0, max_duration: float = 60.0):
+        self.min_duration = min_duration
+        self.max_duration = max_duration
 
-def segment_transcript(job_id: str) -> Path:
-    """
-    Lê o transcript.json e agrupa frases baseadas em tempo e pontuação.
-    Gera o segments.json.
-    """
-    job_folder = settings.get_job_path(job_id)
-    transcript_path = job_folder / "transcript.json"
-    
-    if not transcript_path.exists():
-        raise FileNotFoundError(f"Transcript não encontrado: {transcript_path}")
+    def segment(self, phrases: List[Phrase]) -> List[Segment]:
+        segments: List[Segment] = []
+        current_phrases: List[Phrase] = []
+        block_start = 0.0
 
-    logger.info(f"[{job_id}] Iniciando segmentação heurística...")
-    transcript = load_transcript(transcript_path)
+        for phrase in phrases:
+            if not current_phrases:
+                block_start = phrase.start
 
-    final_segments = []
-    
-    # Variáveis temporárias para construir o bloco atual
-    current_block = []
-    current_start = 0.0
-    
-    for i, phrase in enumerate(transcript):
-        # Se for o início de um bloco novo
-        if not current_block:
-            current_start = phrase['start']
+            current_phrases.append(phrase)
+            current_duration = phrase.end - block_start
+
+            # Lógica de Decisão Híbrida
+            # 1. Se estourou o tempo máximo -> Corta forçado
+            # 2. Se está no tempo ideal E tem pontuação -> Corta bonito
+            force_cut = current_duration >= self.max_duration
+            nice_cut = (current_duration >= self.min_duration) and self._ends_sentence(phrase.text)
+
+            if force_cut or nice_cut:
+                seg = self._build_segment(current_phrases)
+                if seg:
+                    segments.append(seg)
+                current_phrases = [] # Reseta para o próximo
+
+        return segments
+
+    def _ends_sentence(self, text: str) -> bool:
+        return text.strip().endswith((".", "?", "!"))
+
+    def _build_segment(self, phrases: List[Phrase]) -> Optional[Segment]:
+        if not phrases: return None
         
-        current_block.append(phrase)
-        
-        current_end = phrase['end']
-        current_duration = current_end - current_start
-        text = phrase['text'].strip()
+        start = phrases[0].start
+        end = phrases[-1].end
+        full_text = " ".join(p.text.strip() for p in phrases)
+        all_words = [w for p in phrases for w in p.words]
 
-        # Verifica se é hora de fechar o bloco
-        is_valid_duration = MIN_DURATION <= current_duration <= MAX_DURATION
-        is_max_limit = current_duration > MAX_DURATION
-        has_strong_punctuation = text.endswith('.') or text.endswith('?') or text.endswith('!')
-        
-        # LOGICA DE CORTE:
-        # 1. Se estiver no tempo ideal E tiver pontuação final -> CORTA (Melhor cenário)
-        # 2. Se estourou o tempo máximo -> CORTA (Cenário forçado)
-        
-        should_cut = (is_valid_duration and has_strong_punctuation) or is_max_limit
+        return Segment(
+            start=start, 
+            end=end, 
+            duration=end - start, 
+            text=full_text, 
+            words=all_words
+        )
 
-        if should_cut:
-            # Salva o segmento
-            segment_text = " ".join([p['text'].strip() for p in current_block])
-            
-            final_segments.append({
-                "start": current_start,
-                "end": current_end,
-                "duration": current_duration,
-                "text": segment_text,
-                # Salvamos as palavras originais para poder legendar com precisão depois
-                "words": [w for p in current_block for w in p.get('words', [])]
-            })
-            
-            # Reseta para o próximo bloco
-            current_block = []
-            # Log para debug visual
-            # logger.info(f"Corte encontrado: {current_duration:.1f}s -> {segment_text[:50]}...")
+# --- FUNÇÕES AUXILIARES DE IO ---
+def load_phrases(job_id: str) -> List[Phrase]:
+    path = settings.get_job_path(job_id) / "transcript.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Transcript não encontrado: {path}")
 
-    # Salva o resultado
-    output_path = save_segments(final_segments, job_id)
-    logger.info(f"[{job_id}] Segmentação concluída. {len(final_segments)} cortes gerados.")
-    return output_path
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Converte JSON cru para Objetos Phrase
+    return [
+        Phrase(
+            start=item["start"],
+            end=item["end"],
+            text=item["text"],
+            words=item.get("words", [])
+        ) for item in data
+    ]
+
+def save_segments(segments: List[Segment], job_id: str) -> str:
+    path = settings.get_job_path(job_id) / "segments.json"
+    data_out = [
+        {
+            "start": s.start,
+            "end": s.end,
+            "duration": s.duration,
+            "text": s.text,
+            "words": s.words
+        } for s in segments
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data_out, f, ensure_ascii=False, indent=2)
+    return str(path)

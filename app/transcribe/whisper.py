@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from faster_whisper import WhisperModel
-from app.settings import settings
+from app.config.settings import settings
 import json
 
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +31,7 @@ def transcribe_audio(job_id: str) -> Path:
     logger.info(f"[{job_id}] Iniciando transcrição...")
     
     # Executa a transcrição
-    # word_timestamps=True é CRUCIAL para cortes precisos
+    # word_timestamps=True é fundamental para cortes precisos
     segments, info = model.transcribe(str(audio_path), word_timestamps=True, language="pt")
 
     # Formata a saída para uma lista simples de dicionários

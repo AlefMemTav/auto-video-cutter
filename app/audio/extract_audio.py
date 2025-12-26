@@ -1,7 +1,7 @@
 import ffmpeg
 import logging
 from pathlib import Path
-from app.settings import settings
+from app.config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

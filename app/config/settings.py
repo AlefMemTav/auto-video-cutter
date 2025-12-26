@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     
     # Configurações do Whisper
     WHISPER_MODEL: str = "small" # small, medium, large-v2
-    WHISPER_DEVICE: str = "cpu"   # "cuda" se tiver NVIDIA, "cpu" se não
-    WHISPER_COMPUTE_TYPE: str = "int8"
+    WHISPER_DEVICE: str = "cuda"   # "cuda" se tiver NVIDIA, "cpu" se não
+    WHISPER_COMPUTE_TYPE: str = "int8"  # float16, int8_float16, int8
     
     # Configurações de Fila
     REDIS_HOST: str = "localhost"
