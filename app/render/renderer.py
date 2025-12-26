@@ -7,10 +7,13 @@ from app.subtitles.ass_generator import create_ass_file
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def render_short(job_id: str, segment_index: int, segment_data: dict) -> Path:
+def render_short(job_id: str, segment_index: int, segment_data: dict, options: dict = None) -> Path:
     """
     Renderiza um único short a partir dos dados do segmento.
     """
+    if options is None:
+        options = {}
+
     job_folder = settings.get_job_path(job_id)
     input_video = job_folder / "input.mp4"
     
@@ -25,7 +28,7 @@ def render_short(job_id: str, segment_index: int, segment_data: dict) -> Path:
     output_video = outputs_folder / f"short_{segment_index:03d}.mp4"
 
     # 1. Gerar a legenda para este segmento
-    create_ass_file(segment_data, ass_path)
+    create_ass_file(segment_data, ass_path, options=options)
 
     logger.info(f"[{job_id}] Renderizando Short #{segment_index}...")
 
@@ -52,22 +55,21 @@ def render_short(job_id: str, segment_index: int, segment_data: dict) -> Path:
 
     cmd = [
         'ffmpeg',
-        '-y',               # Sobrescrever
-        '-ss', str(start),  # Início do corte
-        '-t', str(duration),# Duração
+        '-y',               
+        '-ss', str(start),  
+        '-t', str(duration),
         '-i', str(input_video),
         '-filter_complex', filter_complex,
-        '-map', '[outv]',   # Mapeia o vídeo processado
-        '-map', '0:a',      # Mapeia o áudio original
+        '-map', '[outv]',   
+        '-map', '0:a',      
         '-c:v', 'libx264',
-        '-preset', 'ultrafast', # Use 'medium' para produção final (mais lento, melhor qualidade)
+        '-preset', 'ultrafast', 
         '-c:a', 'aac',
         '-b:a', '128k',
         str(output_video)
     ]
 
     try:
-        # Executa e esconde o log do ffmpeg, mostra apenas erros
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         logger.info(f"[{job_id}] Short salvo em: {output_video}")
         return output_video

@@ -1,4 +1,5 @@
 import datetime
+from PIL import Image, ImageDraw, ImageFont
 import streamlit as st
 import os
 import time
@@ -23,6 +24,64 @@ except Exception as e:
     st.stop()
 
 # --- FUNÇÕES AUXILIARES ---
+
+def generate_preview(text_color, font_size, margin_v):
+    """
+    Gera uma imagem dummy (9:16) simulando o Short final.
+    """
+    # 1. Dimensões do Short (1080x1920)
+    # Vamos reduzir a escala por 3 para o preview ficar rápido e leve na tela
+    scale = 0.3
+    w_orig, h_orig = 1080, 1920
+    w, h = int(w_orig * scale), int(h_orig * scale)
+    
+    # Ajusta os tamanhos recebidos (que são baseados em 1080p) para a escala do preview
+    preview_font_size = int(font_size * scale)
+    preview_margin_v = int(margin_v * scale)
+    
+    # 2. Cria o Canvas (Fundo Cinza Escuro simulando vídeo)
+    img = Image.new('RGB', (w, h), color=(50, 50, 50))
+    draw = ImageDraw.Draw(img)
+    
+    # 3. Carrega a Fonte
+    # Tenta carregar a fonte do sistema Linux, se falhar usa a padrão
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", preview_font_size)
+    except IOError:
+        font = ImageFont.load_default()
+
+    # 4. Texto de Exemplo
+    text = "Legenda de Exemplo\nDuas Linhas de Texto"
+    
+    # 5. Calcula Posição (Centralizado Horizontal, MarginV Vertical)
+    # No formato ASS, MarginV conta de baixo para cima
+    # Precisamos calcular o tamanho do texto para centralizar
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    
+    x = (w - text_w) / 2
+    y = h - preview_margin_v - text_h # De baixo para cima
+
+    # 6. Desenha o Texto (Com Borda Preta igual ao FFmpeg)
+    # stroke_width simula o Outline do ASS
+    outline_width = int(4 * scale) # 4 é o valor que usamos no gerador ASS
+    
+    draw.text(
+        (x, y), 
+        text, 
+        font=font, 
+        fill=text_color, 
+        stroke_width=outline_width, 
+        stroke_fill="black",
+        align="center"
+    )
+    
+    # Desenha uma linha guia para mostrar onde é o fundo do vídeo
+    draw.line([(0, h-1), (w, h-1)], fill="red", width=2)
+    
+    return img
+
 def save_uploaded_file(uploaded_file):
     """Salva o arquivo de upload na pasta 'inputs' do Docker"""
     # Garante que a pasta inputs existe
@@ -34,17 +93,54 @@ def save_uploaded_file(uploaded_file):
         f.write(uploaded_file.getbuffer())
     return uploaded_file.name
 
+# Função auxiliar para empacotar as opções
+def get_options():
+    return {
+        "min_duration": min_duration,
+        "max_duration": max_duration,
+        "text_color": text_color,
+        "font_size": font_size,
+        "margin_v": pos_vertical
+    }
+
 def enqueue_job(source):
     """Envia o trabalho para o Worker"""
     # Importante: Importar a função dentro do job para evitar erro de pickling
     from app.jobs.worker import process_video_pipeline
     
+    opts = get_options()
+
     job = q.enqueue(
         process_video_pipeline,
-        args=(source,),
+        args=(source, None, opts),
         job_timeout=3600  # 1 hora de timeout
     )
     return job.id
+
+# --- CONFIGURAÇÕES LATERAIS ---
+with st.sidebar:
+    st.header("⚙️ Configurações de Corte")
+    
+    with st.expander("⏱️ Duração e Tempo", expanded=False):
+            min_duration = st.slider("Mínimo (segundos)", 10, 60, 30)
+            max_duration = st.slider("Máximo (segundos)", 30, 180, 60)
+    
+    st.divider()
+    
+    st.subheader("🎨 Legendas")
+    text_color = st.color_picker("Cor do Texto", "#FFFF00") # Amarelo
+    font_size = st.slider("Tamanho da Fonte", 40, 120, 85)
+    
+    # Margin V: Quanto maior, mais alto a legenda fica
+    pos_vertical = st.slider("Posição Vertical (Margin Bottom)", 50, 600, 250)
+
+    st.markdown("### 👁️ Preview em Tempo Real")
+    
+    # Chamamos a função geradora passando os valores atuais dos sliders
+    preview_img = generate_preview(text_color, font_size, pos_vertical)
+    
+    # Exibimos a imagem
+    st.image(preview_img)
 
 # --- LAYOUT DA INTERFACE ---
 

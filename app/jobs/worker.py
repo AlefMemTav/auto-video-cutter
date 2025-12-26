@@ -1,6 +1,7 @@
 import logging
 import uuid
 import os
+
 from app.config.settings import settings
 from app.ingest.ingest import ingest_video
 from app.audio.extract_audio import extract_audio
@@ -11,10 +12,15 @@ from app.render.renderer import render_short
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def process_video_pipeline(video_source: str, job_id: str = None):
+def process_video_pipeline(video_source: str, job_id: str = None, options: dict = None):
     if not job_id:
         job_id = str(uuid.uuid4())
-    
+    if options is None:
+        options = {}
+
+    min_dur = options.get('min_duration', 30.0)
+    max_dur = options.get('max_duration', 60.0)
+
     # Usamos o settings para pegar o caminho absoluto correto (/app/storage/jobs/ID)
     # O método get_job_path já cria a pasta automaticamente (mkdir)
     job_folder_path = settings.get_job_path(job_id)
@@ -44,7 +50,7 @@ def process_video_pipeline(video_source: str, job_id: str = None):
         phrases = load_phrases(job_id)
         
         # Instancia o segmentador e processa
-        segmenter = Segmenter(min_duration=30.0, max_duration=60.0)
+        segmenter = Segmenter(min_duration=min_dur, max_duration=max_dur)
         segments_objects = segmenter.segment(phrases)
         # Salva o resultado
         save_segments(segments_objects, job_id)
@@ -72,7 +78,7 @@ def process_video_pipeline(video_source: str, job_id: str = None):
                 "text": seg.text,
                 "words": seg.words
             }
-            render_short(job_id, idx, seg_dict)
+            render_short(job_id, idx, seg_dict, options=options)
 
         logger.info(f"✅ [JOB {job_id}] Pipeline finalizado com sucesso!")
         return job_id

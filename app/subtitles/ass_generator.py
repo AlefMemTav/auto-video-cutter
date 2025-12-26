@@ -10,15 +10,27 @@ def seconds_to_ass_time(seconds: float) -> str:
     centiseconds = int((seconds - int(seconds)) * 100)
     return f"{hours}:{minutes:02d}:{secs:02d}.{centiseconds:02d}"
 
-def generate_ass_header() -> str:
-    """
-    Estilo da Legenda:
-    - Fonte: Sans (Geralmente segura no Linux) ou Roboto
-    - Cor: Amarelo (&H0000FFFF)
-    - Outline: Preto Grosso (3)
-    - Posição: MarginV=250 (Evita cobrir UI do TikTok)
-    """
-    return """[Script Info]
+def hex_to_ass_color(hex_color: str) -> str:
+    """Converte HEX (#RRGGBB) para ASS (&H00BBGGRR)"""
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) == 6:
+        r, g, b = hex_color[:2], hex_color[2:4], hex_color[4:]
+        # ASS usa BGR e o prefixo &H00
+        return f"&H00{b}{g}{r}"
+    return "&H0000FFFF" # Amarelo padrão fallback
+
+def generate_ass_header(
+    font_name="Arial", 
+    font_size=85, 
+    primary_color="#FFFF00", 
+    outline_color="#000000", 
+    margin_v=250
+) -> str:
+    
+    ass_primary = hex_to_ass_color(primary_color)
+    ass_outline = hex_to_ass_color(outline_color)
+    
+    return f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -26,13 +38,16 @@ WrapStyle: 1
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, Alignment, MarginL, MarginR, MarginV, Outline, Shadow
-Style: Default,Arial,85,&H0000FFFF,&H00000000,&H80000000,-1,0,2,20,20,250,4,0
+Style: Default,{font_name},{font_size},{ass_primary},{ass_outline},&H80000000,-1,0,2,20,20,{margin_v},4,0
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-def create_ass_file(segment: Dict, output_path: Path):
+def create_ass_file(segment: Dict, output_path: Path, options: Dict = None):
+    if options is None:
+        options = {}
+    
     """
     Gera o arquivo .ass quebrando as palavras em linhas curtas.
     """
@@ -49,7 +64,11 @@ def create_ass_file(segment: Dict, output_path: Path):
             f.write(content)
         return
 
-    ass_content = generate_ass_header()
+    ass_content = generate_ass_header(
+        font_size=options.get('font_size', 85),
+        primary_color=options.get('text_color', '#FFFF00'),
+        margin_v=options.get('margin_v', 250)
+    )
     
     # --- Lógica de Agrupamento de Palavras (Caption Grouping) ---
     current_group = []
