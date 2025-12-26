@@ -91,7 +91,7 @@ auto-video-cutter/
 │   ├── render/         # renderer (ffmpeg filter_complex)
 │   ├── jobs/           # worker RQ
 │   ├── models/         # dataclasses / pydantic
-│   └── settings.py     # configs/env
+│   └── config/         # configs
 ├── storage/
 │   └── jobs/{job_id}/
 │       ├── input.mp4
@@ -100,11 +100,14 @@ auto-video-cutter/
 │       ├── segments.json
 │       ├── subtitles/segment_01.ass
 │       └── outputs/short_01.mp4
-├── docker/
-│   ├── Dockerfile
-│   └── docker-compose.yml
+├── Dockerfile
+├── docker-compose.yml
+├── worker_service.py
 ├── main.py
 ├── requirements.txt
+├── docs/
+├── .gitignore
+├── pyproject.toml
 └── README.md
 ```
 

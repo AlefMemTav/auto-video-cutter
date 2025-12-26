@@ -4,7 +4,7 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     # Caminhos Base
-    BASE_DIR: Path = Path(__file__).resolve().parent.parent
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     STORAGE_DIR: Path = BASE_DIR / "storage"
     JOBS_DIR: Path = STORAGE_DIR / "jobs"
     
