@@ -5,6 +5,7 @@ from pathlib import Path
 from requests import options
 from app.config.settings import settings
 from app.subtitles.ass_generator import create_ass_file
+from app.video.smart_crop import get_smart_crop_x
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ def render_short(job_id: str, segment_index: int, segment_data: dict, options: d
     # 1. Monta o filtro visual BASE (Corte e Proporção)
     if video_format == 'vertical':
         if use_blur:
-            # --- OPÇÃO 1: Fundo Borrado (O que tínhamos antes) ---
+            # --- Fundo Borrado ---
             # [bg]: Escala para cobrir tudo e aplica blur
             # [fg]: Escala para caber dentro
             # overlay: Cola o [fg] no centro do [bg]
@@ -46,12 +47,23 @@ def render_short(job_id: str, segment_index: int, segment_data: dict, options: d
                 "[bg_blurred][fg_scaled]overlay=(W-w)/2:(H-h)/2[base_out]"
             )
         else:
-            # --- OPÇÃO 2 (NOVO PADRÃO): Crop to Fill (Preencher Tela) ---
-            # force_original_aspect_ratio=increase: Garante que o vídeo cubra a área 1080x1920
-            # crop=1080:1920: Corta o excesso nas laterais para centralizar
-            base_filter = (
-                "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[base_out]"
+            # --- MODO FILL (Smart Crop ou Centralizado) ---
+            
+            # Tenta calcular a posição do rosto
+            crop_x = get_smart_crop_x(
+                str(input_video), 
+                segment_data['start'], 
+                segment_data['duration']
             )
+            
+            if crop_x is not None:
+                # Se achou rosto, usa a coordenada calculada
+                # scale=-1:1920 -> Redimensiona altura para 1920, mantém proporção na largura
+                # crop=1080:1920:X:0 -> Corta janela de 1080x1920 na posição X calculada
+                base_filter = f"[0:v]scale=-1:1920,crop=1080:1920:{crop_x}:0[base_out]"
+            else:
+                # Fallback: Se não achou rosto, centraliza (crop behavior padrão do ffmpeg)
+                base_filter = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[base_out]"
     else:
         # Horizontal (1920x1080) - Mantém igual
         base_filter = (

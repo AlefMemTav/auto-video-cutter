@@ -8,6 +8,10 @@ yt-dlp
 ffmpeg-python==0.2.0
 faster-whisper==1.0.3
 
+# Computer Vision
+mediapipe
+opencv-python-headless
+
 # Queue and Jobs
 redis==5.0.1
 rq==1.16.2

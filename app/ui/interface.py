@@ -430,7 +430,7 @@ with right:
         font_name=font_preview
     )
     
-    caption_text = "REVISÃO" if is_reviewing else f"Config Atual ({video_format})"
+    caption_text = "REVISÃO" if is_reviewing else f"Simulação ({video_format})"
     st.image(preview_img, caption=caption_text, width="stretch")
 
     if not subs_val:

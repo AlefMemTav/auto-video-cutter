@@ -86,6 +86,7 @@ auto-video-cutter/
 │   ├── ui/             # user interface
 │   ├── ingest/         # criação do job e input
 │   ├── audio/          # extração de áudio
+|   ├── video/          # visão computacional
 │   ├── transcribe/     # faster-whisper
 │   ├── segment/        # heurística de cortes
 │   ├── subtitles/      # gerador de .ass
