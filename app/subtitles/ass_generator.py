@@ -70,8 +70,13 @@ def create_ass_file(segment: Dict, output_path: Path, options: Dict = None):
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(content)
         return
+    
+    f_name = options.get('font_name', 'Arial')
+    if f_name == "Padrão":
+        f_name = "Arial"
 
     ass_content = generate_ass_header(
+        font_name=f_name,
         font_size=options.get('font_size', 85),
         primary_color=options.get('text_color', '#FFFF00'),
         margin_v=options.get('margin_v', 250),

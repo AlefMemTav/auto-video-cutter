@@ -85,7 +85,7 @@ def create_zip(job_id):
     return None
 
 @st.cache_data(show_spinner=False) 
-def generate_preview(text_color, font_size, margin_v, is_vertical=True, show_text=True, use_blur=False):
+def generate_preview(text_color, font_size, margin_v, is_vertical=True, show_text=True, use_blur=False, font_name="Padrão"):
     scale = 0.3
     if is_vertical:
         w_orig, h_orig = 1080, 1920
@@ -108,10 +108,25 @@ def generate_preview(text_color, font_size, margin_v, is_vertical=True, show_tex
     if show_text:
         preview_font_size = int(font_size * scale)
         preview_margin_v = int(margin_v * scale)
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", preview_font_size)
-        except IOError:
-            font = ImageFont.load_default()
+        
+        font_loaded = False
+        if font_name and font_name != "Padrão":
+            try:
+                # Tenta carregar a fonte da pasta assets
+                font_path = Path(f"/app/assets/fonts/{font_name}")
+                if font_path.exists():
+                    font = ImageFont.truetype(str(font_path), preview_font_size)
+                    font_loaded = True
+            except Exception as e:
+                print(f"Erro ao carregar fonte {font_name}: {e}")
+
+        # Fallback se for "Padrão" ou se der erro
+        if not font_loaded:
+            try:
+                # Tenta uma fonte de sistema Linux comum mais bonita que a default
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", preview_font_size)
+            except IOError:
+                font = ImageFont.load_default()
 
         text = "Legenda Aqui\nTexto Exemplo"
         bbox = draw.textbbox((0, 0), text, font=font)
@@ -119,6 +134,8 @@ def generate_preview(text_color, font_size, margin_v, is_vertical=True, show_tex
         text_h = bbox[3] - bbox[1]
         x = (w - text_w) / 2
         y = h - preview_margin_v - text_h 
+        
+        # Stroke (contorno) preto para destacar
         draw.text((x, y), text, font=font, fill=text_color, stroke_width=2, stroke_fill="black", align="center")
     
     draw.line([(0, h-1), (w, h-1)], fill="red", width=2)
@@ -135,6 +152,9 @@ def save_uploaded_file(uploaded_file):
 
 def get_options():
     is_short = "Short" in video_format
+    current_font = "Padrão"
+    if use_subtitles and 'selected_font' in globals() and selected_font:
+        current_font = selected_font
     return {
         "min_duration": min_duration,
         "max_duration": max_duration,
@@ -143,7 +163,8 @@ def get_options():
         "margin_v": pos_vertical,
         "format": "vertical" if is_short else "horizontal",
         "use_subs": use_subtitles,
-        "use_blur": use_blur if is_short else False
+        "use_blur": use_blur if is_short else False,
+        "font_name": current_font
     }
 
 def enqueue_job(source, options):
@@ -197,9 +218,30 @@ with st.sidebar:
         max_duration = st.slider("Máximo (segundos)", 30, 600, key="max_val", disabled=is_reviewing)
     
     st.divider()
-    st.header("🎨 Legendas")
+    st.header("🎨 Legendas e Aparência")
     use_subtitles = st.checkbox("Adicionar Legendas Queimadas", key="subs_default", disabled=is_reviewing)
     if use_subtitles:
+        fonts_dir = Path("/app/assets/fonts")
+        available_fonts = [f.name for f in fonts_dir.glob("*.ttf")] if fonts_dir.exists() else ["Padrão"]
+        selected_font = st.selectbox("Fonte da Legenda", available_fonts)
+
+        if selected_font != "Padrão":
+            try:
+                preview_h = 50
+                preview_w = 280
+                font_img = Image.new('RGB', (preview_w, preview_h), color=(40, 40, 40))
+                draw_preview = ImageDraw.Draw(font_img)
+                
+                f_path = fonts_dir / selected_font
+                mini_font = ImageFont.truetype(str(f_path), 28) 
+
+                draw_preview.text((10, 8), "Abc 123 Video", font=mini_font, fill="#FFFFFF")
+                
+                st.image(font_img, caption="Amostra da Fonte")
+                
+            except Exception as e:
+                st.caption(f"Não foi possível visualizar a fonte.")
+       
         text_color = st.color_picker("Cor do Texto", "#FFFF00", disabled=is_reviewing) 
         font_size = st.slider("Tamanho da Fonte", 30, 150, 85, disabled=is_reviewing)
         pos_vertical = st.slider("Posição Vertical", 50, 800, 150, disabled=is_reviewing)
@@ -259,6 +301,7 @@ with left:
             with c3:
                 if opts['use_subs']:
                     st.caption(f"Cor: {opts['text_color']} | Tamanho: {opts['font_size']}")
+                    st.caption(f"Fonte: {opts.get('font_name', 'Padrão')}")
             
             st.divider()
             
@@ -345,34 +388,53 @@ with left:
 
 # Preview Lateral
 with right:
-    st.markdown("### 👁️ Preview")
+    st.markdown("### Preview")
+
+    font_preview = "Padrão"
+
     if is_reviewing:
+        # Se estiver na revisão, pega do job pendente
         preview_opts = st.session_state.pending_job['options']
         is_vert = preview_opts['format'] == 'vertical'
         blur_val = preview_opts.get('use_blur', False)
         subs_val = preview_opts['use_subs']
+        font_preview = preview_opts.get('font_name', "Padrão")
         
-        preview_img = generate_preview(
-            preview_opts['text_color'], 
-            preview_opts['font_size'], 
-            preview_opts['margin_v'], 
-            is_vert, 
-            show_text=subs_val, 
-            use_blur=blur_val
-        )
-        st.image(preview_img, caption="REVISÃO (Como será gerado)", width="stretch")
-        
+        # Cores e tamanhos também do job
+        p_text_color = preview_opts['text_color']
+        p_font_size = preview_opts['font_size']
+        p_margin = preview_opts['margin_v']
+
     else:
-        is_vertical = "Short" in video_format
-        current_blur = use_blur if "Short" in video_format else False
+        # Se estiver na edição normal, pega da sidebar atual
+        is_vert = "Short" in video_format
+        blur_val = use_blur if is_vert else False
+        subs_val = use_subtitles
         
-        preview_img = generate_preview(
-            text_color, font_size, pos_vertical, is_vertical, 
-            show_text=use_subtitles, use_blur=current_blur
-        )
-        st.image(preview_img, caption=f"Simulação ({video_format})", width="stretch") 
-        if not use_subtitles:
-            st.caption("ℹ️ Modo sem legendas")
+        # Verifica se a variável selected_font existe (se legendas estiver ativado)
+        if use_subtitles and 'selected_font' in locals(): 
+            font_preview = selected_font 
+        
+        p_text_color = text_color
+        p_font_size = font_size
+        p_margin = pos_vertical
+
+    # Gera a imagem passando a fonte
+    preview_img = generate_preview(
+        p_text_color, 
+        p_font_size, 
+        p_margin, 
+        is_vert, 
+        show_text=subs_val, 
+        use_blur=blur_val,
+        font_name=font_preview
+    )
+    
+    caption_text = "REVISÃO" if is_reviewing else f"Config Atual ({video_format})"
+    st.image(preview_img, caption=caption_text, width="stretch")
+
+    if not subs_val:
+        st.caption("ℹ️ Modo sem legendas")
 
 if should_refresh:
     time.sleep(2)

@@ -70,7 +70,7 @@ def render_short(job_id: str, segment_index: int, segment_data: dict, options: d
         
         # Concatena o filtro de legenda no vídeo base
         # Pega [base_out], aplica legenda e manda para [outv]
-        final_filter = f"{base_filter};[base_out]ass='{ass_path}'[outv]"
+        final_filter = f"{base_filter};[base_out]ass='{ass_path}':fontsdir='/app/assets/fonts'[outv]"
     else:
         # Sem legenda: apenas passa o [base_out] direto para o [outv]
         # Usamos o filtro 'null' que não faz nada, só para manter a consistência do nome [outv]

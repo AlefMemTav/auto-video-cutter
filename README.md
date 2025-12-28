@@ -108,6 +108,8 @@ auto-video-cutter/
 ├── main.py
 ├── requirements.txt
 ├── pyproject.toml
+├── assets/
+│   └── fonts/
 ├── docs/
 ├── .gitignore
 └── README.md
