@@ -1,4 +1,6 @@
+import uuid
 import datetime
+import time
 import shutil
 from PIL import Image, ImageDraw, ImageFont
 import streamlit as st
@@ -35,18 +37,24 @@ if not q:
     st.error("Erro fatal: Não foi possível conectar ao Redis.")
     st.stop()
 
-# --- FUNÇÕES AUXILIARES ---
+# --- FUNÇÕES ---
 
-@st.cache_data(ttl=2, show_spinner=False)
-def get_logs(lines=50):
-    log_path = settings.STORAGE_DIR / "logs" / "worker.log"
-    if not log_path.exists():
-        return ["Aguardando início dos logs..."]
+def get_job_progress(job_id):
+    """Lê o progresso do Redis (Sem Cache para ser Real-Time)"""
     try:
-        with open(log_path, "r") as f:
-            return f.readlines()[-lines:]
+        redis_conn = Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT)
+        # Verifica se a chave existe
+        if not redis_conn.exists(f"job_status:{job_id}"):
+            return 0, "Na fila de processamento..."
+            
+        data = redis_conn.hgetall(f"job_status:{job_id}")
+        if data:
+            pct = int(data.get(b'progress', 0))
+            status = data.get(b'status', b'Iniciando...').decode('utf-8')
+            return pct, status
     except Exception:
-        return ["Erro ao ler logs."]
+        pass
+    return 0, "Aguardando worker..."
 
 @st.cache_data(ttl=5, show_spinner=False)
 def list_jobs_data():
@@ -92,12 +100,7 @@ def generate_preview(text_color, font_size, margin_v, is_vertical=True, show_tex
         video_h = int(w * (9/16))
         y_pos = (h - video_h) // 2
         draw.rectangle([0, y_pos, w, y_pos + video_h], fill=(60, 60, 60), outline="black")
-        try:
-            small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
-            draw.text((w/2, y_pos - 15), "Fundo Borrado", font=small_font, fill="white", anchor="ms")
-        except:
-            pass
-
+    
     if show_text:
         preview_font_size = int(font_size * scale)
         preview_margin_v = int(margin_v * scale)
@@ -141,13 +144,20 @@ def get_options():
 
 def enqueue_job(source, options):
     from app.jobs.worker import process_video_pipeline
-    job = q.enqueue(process_video_pipeline, args=(source, None, options), job_timeout=3600)
+    
+    my_job_id = str(uuid.uuid4())
+    
+    job = q.enqueue(
+        process_video_pipeline,
+        args=(source, my_job_id, options),
+        job_id=my_job_id,
+        job_timeout=3600
+    )
     return job.id
 
-# --- CONFIGURAÇÕES LATERAIS ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configurações de Corte")
-    st.subheader("📐 Formato do Vídeo")
     
     def update_slider_defaults():
         fmt = st.session_state.video_format
@@ -178,16 +188,13 @@ with st.sidebar:
         use_blur = st.checkbox("Usar Fundo Borrado (Fit)", value=False, disabled=is_reviewing)
     
     st.divider()
-
     with st.expander("⏱️ Duração e Tempo", expanded=True):
         min_duration = st.slider("Mínimo (segundos)", 10, 300, key="min_val", disabled=is_reviewing)
         max_duration = st.slider("Máximo (segundos)", 30, 600, key="max_val", disabled=is_reviewing)
     
     st.divider()
     st.header("🎨 Legendas")
-    
     use_subtitles = st.checkbox("Adicionar Legendas Queimadas", key="subs_default", disabled=is_reviewing)
-    
     if use_subtitles:
         text_color = st.color_picker("Cor do Texto", "#FFFF00", disabled=is_reviewing) 
         font_size = st.slider("Tamanho da Fonte", 30, 150, 85, disabled=is_reviewing)
@@ -195,10 +202,35 @@ with st.sidebar:
     else:
         text_color, font_size, pos_vertical = "#FFFF00", 85, 150
 
-# --- LAYOUT PRINCIPAL ---
+# --- LAYOUT ---
 left, right = st.columns([4, 1])
 
+should_refresh = False
+
 with left:
+    if 'last_job_id' in st.session_state and st.session_state.last_job_id:
+        job_id = st.session_state.last_job_id
+        pct, status = get_job_progress(job_id)
+        
+        # Container Visual Bonito
+        with st.container(border=True):
+            pc1, pc2 = st.columns([5, 1])
+            with pc1:
+                st.info(f"🔨 **Processando:** {status}")
+                st.progress(pct / 100)
+            with pc2:
+                # Botão de emergência para limpar status travado
+                if st.button("Limpar Status"):
+                    st.session_state.last_job_id = None
+                    st.rerun()
+
+        if pct < 100:
+            should_refresh = True # Marca para refresh no final do script
+        elif pct == 100:
+            st.success("✅ Concluído! Verifique a aba Resultados.")
+            # Remove o ID após concluir para limpar a tela na próxima interação
+            st.session_state.last_job_id = None 
+
     if is_reviewing:
         p_job = st.session_state.pending_job
         opts = p_job['options']
@@ -222,104 +254,78 @@ with left:
             
             b1, b2 = st.columns([1, 4])
             with b1:
-                # CONFIRMAR (Envia o job)
                 if st.button("✅ PROCESSAR", type="primary", use_container_width=True):
                     with st.spinner("Enviando..."):
                         job_id = enqueue_job(p_job['source'], opts)
-                        st.success(f"Enviado! ID: {job_id}")
                         st.session_state['last_job_id'] = job_id
                         st.session_state.pending_job = None
                         st.rerun()
             with b2:
-                # CANCELAR (Só limpa o estado, inputs abaixo voltam a ficar ativos)
-                if st.button("❌ Editar Configurações"):
-                    if p_job['type'] == 'file':
-                        st.session_state.last_active_tab = "file"
-                    else:
-                        st.session_state.last_active_tab = "youtube"
-                
+                if st.button("❌ Editar Configurações", type="secondary"):
+                    if p_job['type'] == 'file': st.session_state.last_active_tab = "file"
+                    else: st.session_state.last_active_tab = "youtube"
                     st.session_state.pending_job = None
                     st.rerun()
-    
+
     if st.session_state.last_active_tab == "file":
-        tab2, tab1, tab3 = st.tabs(["📂 Upload Local (Andamento)", "📺 YouTube", "👀 Resultados"])
+        tab2, tab1, tab3 = st.tabs(["📂 Upload Local", "📺 YouTube", "👀 Resultados"])
     else:
-        tab1, tab2, tab3 = st.tabs(["📺 YouTube (Andamento)", "📂 Upload Local", "👀 Resultados"])
+        tab1, tab2, tab3 = st.tabs(["📺 YouTube", "📂 Upload Local", "👀 Resultados"])
 
     with tab1:
         st.header("Baixar do YouTube")
-        # Input travado na revisão
         url = st.text_input("Cole o link do vídeo aqui:", key="yt_url", disabled=is_reviewing)
-        
         if not is_reviewing:
-            if st.button("🔍 Revisar Configurações", type="primary", key="btn_yt"):
+            if st.button("🔍 Revisar Envio", type="primary", key="btn_yt"):
                 if url:
                     st.session_state.last_active_tab = "youtube"
-                    st.session_state.pending_job = {
-                        "source": url,
-                        "type": "youtube",
-                        "options": get_options()
-                    }
+                    st.session_state.pending_job = {"source": url, "type": "youtube", "options": get_options()}
                     st.rerun()
                 else:
                     st.warning("Insira uma URL.")
 
     with tab2:
-        st.header("Upload de Arquivo (MP4)")
-        uploaded_file = st.file_uploader("Escolha um vídeo", type=["mp4", "mov", "mkv"], key="file_up", disabled=is_reviewing)
-        
+        uploaded_file = st.file_uploader("Upload de Arquivo (MP4, MOV)", type=["mp4", "mov"], key="file_up", disabled=is_reviewing)
         if not is_reviewing:
-            if st.button("🔍 Revisar Configurações", type="primary", key="btn_up"):
+            if st.button("🔍 Revisar Envio", type="primary", key="btn_up"):
                 if uploaded_file:
                     st.session_state.last_active_tab = "file"
-                    
                     filename = save_uploaded_file(uploaded_file)
-                    st.session_state.pending_job = {
-                        "source": filename,
-                        "type": "file",
-                        "options": get_options()
-                    }
+                    st.session_state.pending_job = {"source": filename, "type": "file", "options": get_options()}
                     st.rerun()
                 else:
                     st.warning("Faça o upload primeiro.")
 
     with tab3:
         st.header("📂 Gerenciador de Jobs")
+       
         job_options = list_jobs_data() 
-        
         if not job_options:
             st.info("Nenhum job encontrado ainda.")
         else:
-            selected_label = st.selectbox("Selecione um Job:", list(job_options.keys()), disabled=is_reviewing)
-            selected_job_id = job_options[selected_label]
-            st.divider()
+            s_label = st.selectbox("Job:", list(job_options.keys()), disabled=is_reviewing)
+            s_id = job_options[s_label]
+            out_dir = settings.get_job_path(s_id) / "outputs"
             
-            job_path = settings.get_job_path(selected_job_id)
-            output_dir = job_path / "outputs"
-            
-            if output_dir.exists():
-                videos = list(output_dir.glob("*.mp4"))
+            if out_dir.exists():
+                videos = list(out_dir.glob("*.mp4"))
                 if videos:
-                    st.success(f"🎬 {len(videos)} Shorts")
-                    zip_file = create_zip(selected_job_id)
-                    if zip_file:
-                        with open(zip_file, "rb") as f:
-                            st.download_button("📦 BAIXAR TUDO (ZIP)", f, f"shorts_{selected_job_id}.zip", "application/zip", type="primary", disabled=is_reviewing)
+                    zip_f = create_zip(s_id)
+                    if zip_f:
+                        with open(zip_f, "rb") as f:
+                            st.download_button("📦 ZIP", f, f"shorts_{s_id}.zip", "application/zip", type="primary", disabled=is_reviewing)
                     
                     cols = st.columns(3)
-                    for i, video_path in enumerate(videos):
+                    for i, v in enumerate(videos):
                         with cols[i % 3]:
-                            st.video(str(video_path))
-                            with open(video_path, "rb") as file:
-                                st.download_button("⬇️ Baixar", file, video_path.name, "video/mp4", key=f"dl_{selected_job_id}_{i}", disabled=is_reviewing)
+                            st.video(str(v))
+                            with open(v, "rb") as f:
+                                st.download_button("⬇️", f, v.name, "video/mp4", key=f"dl_{s_id}_{i}", disabled=is_reviewing)
                 else:
-                    st.warning("⏳ Processando...")
-            else:
-                st.error("Pasta não encontrada.")
+                    st.warning("Processando...")
 
 with right:
     st.markdown("### 👁️ Preview")
-    
     if is_reviewing:
         preview_opts = st.session_state.pending_job['options']
         is_vert = preview_opts['format'] == 'vertical'
@@ -347,3 +353,7 @@ with right:
         st.image(preview_img, caption=f"Simulação ({video_format})", width="stretch") 
         if not use_subtitles:
             st.caption("ℹ️ Modo sem legendas")
+
+if should_refresh:
+    time.sleep(2)
+    st.rerun()
