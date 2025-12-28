@@ -15,12 +15,16 @@ st.set_page_config(page_title="Auto Video Cutter", page_icon="✂️", layout="w
 st.title("✂️ Auto Video Cutter Pro")
 st.markdown("Transforme vídeos longos em Shorts virais com IA.")
 
+# --- ESTADOS ---
 if 'pending_job' not in st.session_state:
     st.session_state.pending_job = None
 
 if 'last_active_tab' not in st.session_state:
     st.session_state.last_active_tab = "youtube"
 
+# Estado que controla se os inputs estão bloqueados
+# Só bloqueamos se o usuário estiver com o painel de REVISÃO aberto.
+# Se estiver apenas processando (barra de progresso), os inputs ficam livres.
 is_reviewing = st.session_state.pending_job is not None
 
 @st.cache_resource
@@ -202,41 +206,47 @@ with st.sidebar:
     else:
         text_color, font_size, pos_vertical = "#FFFF00", 85, 150
 
-# --- LAYOUT ---
+# --- LAYOUT PRINCIPAL ---
 left, right = st.columns([4, 1])
 
 should_refresh = False
 
 with left:
+    # ---------------------------------------------------------
+    # BARRA DE PROGRESSO (Sempre no topo, se existir job ativo)
+    # ---------------------------------------------------------
     if 'last_job_id' in st.session_state and st.session_state.last_job_id:
         job_id = st.session_state.last_job_id
         pct, status = get_job_progress(job_id)
         
-        # Container Visual Bonito
-        with st.container(border=True):
-            pc1, pc2 = st.columns([5, 1])
-            with pc1:
-                st.info(f"🔨 **Processando:** {status}")
-                st.progress(pct / 100)
-            with pc2:
-                # Botão de emergência para limpar status travado
-                if st.button("Limpar Status"):
-                    st.session_state.last_job_id = None
-                    st.rerun()
+        # Usamos st.status para agrupar visualmente e economizar espaço
+        # expanded=True deixa aberto enquanto processa
+        state_expanded = pct < 100
+        
+        with st.status(f"🚀 Processando Job...", expanded=state_expanded):
+            st.info(f"{status}")
+            st.progress(pct / 100)
+            
+            # Botão pequeno para limpar se travar ou terminar
+            if st.button("Limpar / Fechar Status"):
+                st.session_state.last_job_id = None
+                st.rerun()
 
         if pct < 100:
-            should_refresh = True # Marca para refresh no final do script
+            should_refresh = True
         elif pct == 100:
-            st.success("✅ Concluído! Verifique a aba Resultados.")
-            # Remove o ID após concluir para limpar a tela na próxima interação
-            st.session_state.last_job_id = None 
+            # Não limpamos o ID automaticamente aqui para o usuário ver que acabou
+            st.success("✅ Finalizado! Veja os vídeos na aba Resultados abaixo.")
 
+    # ---------------------------------------------------------
+    # PAINEL DE REVISÃO (Aparece abaixo do progresso, se houver)
+    # ---------------------------------------------------------
     if is_reviewing:
         p_job = st.session_state.pending_job
         opts = p_job['options']
         
         with st.container(border=True):
-            st.markdown("### 🕵️ Confirmação")
+            st.markdown("### 🕵️ Confirmar Envio")
             st.info(f"Fonte: **{p_job['source']}**")
             
             c1, c2, c3 = st.columns(3)
@@ -254,6 +264,9 @@ with left:
             
             b1, b2 = st.columns([1, 4])
             with b1:
+                # AO CLICAR AQUI:
+                # 1. pending_job vira None (Review fecha)
+                # 2. last_job_id é preenchido (Progresso abre no topo)
                 if st.button("✅ PROCESSAR", type="primary", use_container_width=True):
                     with st.spinner("Enviando..."):
                         job_id = enqueue_job(p_job['source'], opts)
@@ -261,12 +274,18 @@ with left:
                         st.session_state.pending_job = None
                         st.rerun()
             with b2:
-                if st.button("❌ Editar Configurações", type="secondary"):
+                if st.button("❌ Editar"):
                     if p_job['type'] == 'file': st.session_state.last_active_tab = "file"
                     else: st.session_state.last_active_tab = "youtube"
                     st.session_state.pending_job = None
                     st.rerun()
 
+    # ---------------------------------------------------------
+    # ABAS DE INPUT (Sempre visíveis, para iniciar OUTRO job)
+    # ---------------------------------------------------------
+    # Se estiver revisando, os inputs ficam disabled (ver sidebar e inputs abaixo)
+    # Mas se estiver PROCESSANDO (Barra ativa), os inputs ficam LIVRES.
+    
     if st.session_state.last_active_tab == "file":
         tab2, tab1, tab3 = st.tabs(["📂 Upload Local", "📺 YouTube", "👀 Resultados"])
     else:
@@ -297,13 +316,13 @@ with left:
                     st.warning("Faça o upload primeiro.")
 
     with tab3:
-        st.header("📂 Gerenciador de Jobs")
+        st.header("📂 Uploads")
        
         job_options = list_jobs_data() 
         if not job_options:
             st.info("Nenhum job encontrado ainda.")
         else:
-            s_label = st.selectbox("Job:", list(job_options.keys()), disabled=is_reviewing)
+            s_label = st.selectbox("Selecione:", list(job_options.keys()), disabled=is_reviewing)
             s_id = job_options[s_label]
             out_dir = settings.get_job_path(s_id) / "outputs"
             
@@ -313,17 +332,18 @@ with left:
                     zip_f = create_zip(s_id)
                     if zip_f:
                         with open(zip_f, "rb") as f:
-                            st.download_button("📦 ZIP", f, f"shorts_{s_id}.zip", "application/zip", type="primary", disabled=is_reviewing)
+                            st.download_button("📦 Baixar ZIP", f, f"shorts_{s_id}.zip", "application/zip", type="primary", disabled=is_reviewing)
                     
                     cols = st.columns(3)
                     for i, v in enumerate(videos):
                         with cols[i % 3]:
                             st.video(str(v))
                             with open(v, "rb") as f:
-                                st.download_button("⬇️", f, v.name, "video/mp4", key=f"dl_{s_id}_{i}", disabled=is_reviewing)
+                                st.download_button("⬇️ Baixar", f, v.name, "video/mp4", key=f"dl_{s_id}_{i}", disabled=is_reviewing)
                 else:
-                    st.warning("Processando...")
+                    st.warning("Aguardando vídeos...")
 
+# Preview Lateral
 with right:
     st.markdown("### 👁️ Preview")
     if is_reviewing:
