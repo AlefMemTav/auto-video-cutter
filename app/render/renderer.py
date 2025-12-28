@@ -1,6 +1,8 @@
 import subprocess
 import logging
 from pathlib import Path
+
+from requests import options
 from app.config.settings import settings
 from app.subtitles.ass_generator import create_ass_file
 
@@ -26,20 +28,32 @@ def render_short(job_id: str, segment_index: int, segment_data: dict, options: d
     # Pega as opções
     video_format = options.get('format', 'vertical')
     use_subs = options.get('use_subs', True) # Padrão True se não vier nada
-
+    use_blur = options.get('use_blur', False)
+    
     logger.info(f"[{job_id}] Renderizando Short #{segment_index} (Subs: {use_subs})")
 
     # 1. Monta o filtro visual BASE (Corte e Proporção)
     if video_format == 'vertical':
-        # Blur + Crop Vertical
-        base_filter = (
-            "[0:v]split=2[bg][fg];"
-            "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg_blurred];"
-            "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fg_scaled];"
-            "[bg_blurred][fg_scaled]overlay=(W-w)/2:(H-h)/2[base_out]"
-        )
+        if use_blur:
+            # --- OPÇÃO 1: Fundo Borrado (O que tínhamos antes) ---
+            # [bg]: Escala para cobrir tudo e aplica blur
+            # [fg]: Escala para caber dentro
+            # overlay: Cola o [fg] no centro do [bg]
+            base_filter = (
+                "[0:v]split=2[bg][fg];"
+                "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg_blurred];"
+                "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fg_scaled];"
+                "[bg_blurred][fg_scaled]overlay=(W-w)/2:(H-h)/2[base_out]"
+            )
+        else:
+            # --- OPÇÃO 2 (NOVO PADRÃO): Crop to Fill (Preencher Tela) ---
+            # force_original_aspect_ratio=increase: Garante que o vídeo cubra a área 1080x1920
+            # crop=1080:1920: Corta o excesso nas laterais para centralizar
+            base_filter = (
+                "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[base_out]"
+            )
     else:
-        # Horizontal (1920x1080)
+        # Horizontal (1920x1080) - Mantém igual
         base_filter = (
             f"[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2[base_out]"
         )
