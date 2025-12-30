@@ -1,7 +1,8 @@
 # Auto Video Cutter
 
-Cortes automáticos de vídeos para Shorts / Reels / TikTok  
-CPU-only, determinístico — pipeline batch assíncrono para gerar vídeos verticais a partir de vídeos longos sem edição manual.
+Cortes automáticos de vídeos para Shorts / Reels / TikTok com pipeline batch assíncrono para gerar vídeos verticais a partir de vídeos longos sem edição manual.
+
+![Demo Beta](docs/gifs/autovideocutter_demo_1.gif)
 
 ## Sumário
 - Objetivo
@@ -16,13 +17,20 @@ CPU-only, determinístico — pipeline batch assíncrono para gerar vídeos vert
 ---
 
 ## 1. Objetivo do projeto
-Automatizar a geração de short vertical (30–60s) a partir de vídeos longos (ex.: podcasts), com foco em:
+Automatizar a geração de short vertical ou cortes a partir de vídeos (ex.: podcasts), com foco em:
 - performance e baixo custo (CPU-only)
 - previsibilidade e determinismo
 - saída de qualidade "assistível"
 - pipeline automático (não é um editor manual)
 
-Principais restrições: sem GPU, sem tracking facial, sem frontend obrigatório.
+![Imagem 1](docs/images/autovideocutter_1.png)
+*Interface inicial*
+
+![Imagem 2](docs/images/autovideocutter_2.png)
+*Configurações de legendas*
+
+![Imagem 3](docs/images/autovideocutter_3.png)
+*Cortes gerados*
 
 ---
 
@@ -286,10 +294,9 @@ Sem Docker:
 
 ## 10. O que o projeto não faz (por design)
 - Editor visual
-- Face tracking
 - Animação complexa de legendas
 - Ranking emocional automático
-- Uso obrigatório de GPU
+- Uso obrigatório de GPU (porém permitido)
 
 Decisão intencional para simplicidade, previsibilidade e performance em CPUs.
 
@@ -299,7 +306,6 @@ Decisão intencional para simplicidade, previsibilidade e performance em CPUs.
 - LLM para seleção/agrupamento de cortes
 - Ranking de segmentos
 - Upload automático (YouTube / TikTok)
-- UI mínima opcional
 
 ---
 
