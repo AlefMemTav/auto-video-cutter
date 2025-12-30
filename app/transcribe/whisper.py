@@ -1,60 +1,104 @@
+import json
 import logging
-from pathlib import Path
+import os
+import torch
 from faster_whisper import WhisperModel
 from app.config.settings import settings
-import json
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def transcribe_audio(job_id: str) -> Path:
+def get_device_config():
     """
-    Transcreve o áudio usando faster-whisper.
-    Retorna o caminho do arquivo JSON com os segmentos.
+    Decide inteligentemente qual hardware usar.
+    Retorna (device, compute_type)
     """
-    job_folder = settings.get_job_path(job_id)
-    audio_path = job_folder / "audio.wav"
-    output_json = job_folder / "transcript.json"
+    env_device = os.getenv("WHISPER_DEVICE", "auto").lower()
 
-    if not audio_path.exists():
-        raise FileNotFoundError(f"Áudio não encontrado: {audio_path}")
+    # 1. Se o usuário forçou CPU via variável de ambiente
+    if env_device == "cpu":
+        return "cpu", "int8"
 
-    logger.info(f"[{job_id}] Carregando modelo Whisper ({settings.WHISPER_MODEL}) na {settings.WHISPER_DEVICE}...")
+    # 2. Se detectar CUDA disponível (NVIDIA)
+    if torch.cuda.is_available():
+        try:
+            # Tenta pegar info da placa para saber se é robusta (ex: Tesla/RTX) ou Entrada (MX)
+            props = torch.cuda.get_device_properties(0)
+            logger.info(f"🖥️  GPU Detectada: {props.name} (VRAM: {props.total_memory / 1024**3:.1f} GB)")
+            
+            # Placas MX ou antigas geralmente travam com float16. 
+            # Vamos forçar float32 ou int8 para segurança máxima.
+            return "cuda", "float32" # float32 é o "Doador Universal", funciona sempre.
+            
+        except Exception:
+            # Se não conseguir ler a placa, vai no seguro
+            return "cuda", "float32"
+
+    # 3. Fallback para CPU
+    logger.warning("⚠️ Nenhuma GPU NVIDIA detectada ou configurada. Usando CPU (será mais lento).")
+    return "cpu", "int8"
+
+def transcribe_audio(job_id: str):
+    logger.info(f"[{job_id}] Iniciando transcrição com Faster-Whisper...")
     
-    # Carrega o modelo (na primeira vez vai baixar, demora um pouco)
-    model = WhisperModel(
-        settings.WHISPER_MODEL, 
-        device=settings.WHISPER_DEVICE, 
-        compute_type="int8" # Use 'int8' para CPU ou 'float16' para GPU
-    )
+    job_dir = settings.get_job_path(job_id)
+    audio_path = job_dir / "audio.wav"
+    output_path = job_dir / "transcript.json"
 
-    logger.info(f"[{job_id}] Iniciando transcrição...")
+    device, compute_type = get_device_config()
     
-    # Executa a transcrição
-    # word_timestamps=True é fundamental para cortes precisos
-    segments, info = model.transcribe(str(audio_path), word_timestamps=True, language="pt")
+    compute_type = "float32" 
 
-    # Formata a saída para uma lista simples de dicionários
-    transcript_data = []
+    logger.info(f"[{job_id}] Iniciando Whisper | Device: {device} | Type: {compute_type}")
     
-    # O 'segments' é um gerador, a transcrição acontece enquanto iteramos aqui:
-    for segment in segments:
-        seg_data = {
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text.strip(),
-            "words": [
-                {"start": w.start, "end": w.end, "word": w.word.strip()} 
-                for w in segment.words
-            ]
-        }
-        transcript_data.append(seg_data)
-        # Log de progresso simples (opcional)
-        # print(f"{segment.start:.2f}s: {segment.text}")
+    try:
+        # Carrega o modelo Faster-Whisper
+        model = WhisperModel("small", device=device, compute_type=compute_type)
 
-    # Salva em JSON
-    with open(output_json, "w", encoding="utf-8") as f:
-        json.dump(transcript_data, f, ensure_ascii=False, indent=2)
+        segments, info = model.transcribe(
+            str(audio_path), 
+            beam_size=5, 
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+            language="pt"
+        )
 
-    logger.info(f"[{job_id}] Transcrição salva em: {output_json}")
-    return output_json
+        formatted_result = {"segments": []}
+        
+        # Iteração com logs detalhados
+        for i, segment in enumerate(segments):
+            # Log para provar que está funcionando
+            if i % 10 == 0:
+                logger.info(f"🗣️  Segmento {i}: {segment.text[:40]}...")
+
+            segment_dict = {
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text,
+                "words": []
+            }
+            
+            if segment.words:
+                for word in segment.words:
+                    segment_dict["words"].append({
+                        "word": word.word,
+                        "start": word.start,
+                        "end": word.end,
+                        "score": word.probability
+                    })
+            
+            formatted_result["segments"].append(segment_dict)
+
+        # Salva o JSON
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(formatted_result, f, indent=2, ensure_ascii=False)
+
+        total_words = sum(len(s['words']) for s in formatted_result['segments'])
+        logger.info(f"[{job_id}] Transcrição salva! Total de palavras processadas: {total_words}")
+
+        if total_words == 0:
+            logger.warning(f"⚠️ AVISO CRÍTICO: 0 palavras. Se isso persistir com float32, o áudio.wav pode estar mudo.")
+
+    except Exception as e:
+        logger.error(f"Erro fatal na transcrição: {e}")
+        raise e

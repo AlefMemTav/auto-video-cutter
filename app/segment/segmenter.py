@@ -1,19 +1,23 @@
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional
 import json
 import logging
-from app.config.settings import settings
+from dataclasses import dataclass
+from typing import List, Dict
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- MODELOS DE DADOS ---
-@dataclass
-class Phrase:
-    start: float
-    end: float
-    text: str
-    words: List[Dict] = field(default_factory=list)
+STRONG_PUNCTUATION = ('.', '?', '!')
+
+WEAK_ENDINGS = ("e", "mas", "porque", "entao", "então", "assim", "ne", "né", "tipo", "ou", "que")
+
+BAD_STARTERS = ("e", "mas", "entao", "então", "tipo", "assim", "bom", "ai", "aí", "cara", "olha")
+
+LONG_PAUSE_THRESHOLD = 0.7  # Segundos para considerar silêncio relevante
+
+# Pesos da Heurística
+SCORE_STRONG_PUNCT = 10     # Ponto final é ouro
+SCORE_LONG_PAUSE = 8        # Silêncio é prata
+SCORE_WEAK_ENDING = -20     # Terminar com "e" é proibido
+SCORE_TIME_BONUS_MAX = 5    # Incentivo para vídeos mais longos
 
 @dataclass
 class Segment:
@@ -23,87 +27,152 @@ class Segment:
     duration: float
     words: List[Dict]
 
-# --- CLASSE DO SEGMENTADOR ---
+def load_phrases(job_id: str):
+    from app.config.settings import settings
+    path = settings.get_job_path(job_id) / "transcript.json"
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_segments(segments: List[Segment], job_id: str):
+    from app.config.settings import settings
+    path = settings.get_job_path(job_id) / "segments.json"
+    data = [{
+        "start": s.start, "end": s.end, "duration": s.duration,
+        "text": s.text, "words": s.words
+    } for s in segments]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
 class Segmenter:
-    def __init__(self, min_duration: float = 30.0, max_duration: float = 60.0):
+    def __init__(self, min_duration=30, max_duration=60):
         self.min_duration = min_duration
         self.max_duration = max_duration
-
-    def segment(self, phrases: List[Phrase]) -> List[Segment]:
-        segments: List[Segment] = []
-        current_phrases: List[Phrase] = []
-        block_start = 0.0
-
-        for phrase in phrases:
-            if not current_phrases:
-                block_start = phrase.start
-
-            current_phrases.append(phrase)
-            current_duration = phrase.end - block_start
-
-            # Lógica de Decisão Híbrida
-            # 1. Se estourou o tempo máximo -> Corta forçado
-            # 2. Se está no tempo ideal E tem pontuação -> Corta bonito
-            force_cut = current_duration >= self.max_duration
-            nice_cut = (current_duration >= self.min_duration) and self._ends_sentence(phrase.text)
-
-            if force_cut or nice_cut:
-                seg = self._build_segment(current_phrases)
-                if seg:
-                    segments.append(seg)
-                current_phrases = [] # Reseta para o próximo
-
-        return segments
-
-    def _ends_sentence(self, text: str) -> bool:
-        return text.strip().endswith((".", "?", "!"))
-
-    def _build_segment(self, phrases: List[Phrase]) -> Optional[Segment]:
-        if not phrases: return None
+    
+    def segment(self, transcription_data: Dict) -> List[Segment]:
+        # Flatten
+        all_words = []
+        if 'segments' in transcription_data:
+            for seg in transcription_data['segments']:
+                if 'words' in seg:
+                    all_words.extend(seg['words'])
         
-        start = phrases[0].start
-        end = phrases[-1].end
-        full_text = " ".join(p.text.strip() for p in phrases)
-        all_words = [w for p in phrases for w in p.words]
+        # --- DEBUG LINE ---
+        logger.info(f"🔍 DEBUG: Total de palavras encontradas no JSON: {len(all_words)}")
+        
+        if not all_words: 
+            logger.warning("❌ ERRO: Nenhuma palavra encontrada! Verifique se o Whisper está gerando 'word_timestamps'.")
+            return []
 
-        return Segment(
-            start=start, 
-            end=end, 
-            duration=end - start, 
-            text=full_text, 
-            words=all_words
-        )
+        video_segments = []
+        index = 0
+        total_words = len(all_words)
 
-# --- FUNÇÕES AUXILIARES DE IO ---
-def load_phrases(job_id: str) -> List[Phrase]:
-    path = settings.get_job_path(job_id) / "transcript.json"
-    if not path.exists():
-        raise FileNotFoundError(f"Transcript não encontrado: {path}")
+        while index < total_words:
+            # Encontra o MELHOR ponto de corte olhando adiante
+            best_cut_index = self._find_best_cut_in_window(all_words, index)
+            
+            if best_cut_index == -1:
+                break
+            
+            # Extrai o segmento bruto
+            segment_words = all_words[index : best_cut_index + 1]
+            
+            # Limpa o início (Remove "Então...", "E...")
+            segment_words = self._clean_hook(segment_words)
+            
+            if segment_words:
+                self._create_segment(video_segments, segment_words)
+            
+            # Avança o cursor para a próxima palavra após o corte
+            index = best_cut_index + 1
 
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        return video_segments
 
-    # Converte JSON cru para Objetos Phrase
-    return [
-        Phrase(
-            start=item["start"],
-            end=item["end"],
-            text=item["text"],
-            words=item.get("words", [])
-        ) for item in data
-    ]
+    def _find_best_cut_in_window(self, all_words, start_index):
+        """
+        Analisa o futuro (Lookahead) para encontrar o corte com maior Score.
+        """
+        best_score = float('-inf')
+        best_index = -1
+        
+        start_time = all_words[start_index]['start']
+        max_idx = len(all_words) - 1
 
-def save_segments(segments: List[Segment], job_id: str) -> str:
-    path = settings.get_job_path(job_id) / "segments.json"
-    data_out = [
-        {
-            "start": s.start,
-            "end": s.end,
-            "duration": s.duration,
-            "text": s.text,
-            "words": s.words
-        } for s in segments
-    ]
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data_out, f, ensure_ascii=False, indent=2)
-    return str(path)
+        for i in range(start_index, len(all_words)):
+            word = all_words[i]
+            current_duration = word['end'] - start_time
+            
+            # 1. Muito curto? Ignora e continua avançando.
+            if current_duration < self.min_duration:
+                continue
+            
+            # 2. Estourou o tempo máximo?
+            if current_duration > self.max_duration:
+                if best_index == -1:
+                    return i - 1  # Safety Cut
+                else:
+                    return best_index 
+
+            # --- CÁLCULO DE SCORE ---
+            score = 0
+            text = word['word'].lower().strip()
+            text_clean = ''.join(c for c in text if c.isalnum())
+            
+            # Checa Pausa
+            pause_duration = 0
+            if i < max_idx:
+                pause_duration = all_words[i+1]['start'] - word['end']
+            
+            # Critério 1: Pontuação (Usa o text com pontuação)
+            if any(text.endswith(p) for p in STRONG_PUNCTUATION):
+                score += SCORE_STRONG_PUNCT
+            
+            # Critério 2: Pausa de Áudio
+            if pause_duration > LONG_PAUSE_THRESHOLD:
+                score += SCORE_LONG_PAUSE
+            
+            # Critério 3: Terminação Ruim (Usa text_clean)
+            if text_clean in WEAK_ENDINGS:
+                score += SCORE_WEAK_ENDING
+
+            # Critério 4: Bônus de Tempo
+            time_bonus = (current_duration / self.max_duration) * SCORE_TIME_BONUS_MAX
+            score += time_bonus
+
+            if score > best_score:
+                best_score = score
+                best_index = i
+        
+        if best_index != -1:
+            return best_index
+        
+        return -1
+
+    def _clean_hook(self, words):
+        """
+        Remove vícios de linguagem do início.
+        Limite de segurança (max 2 palavras) para não perder contexto.
+        """
+        removed_count = 0
+        while len(words) > 1 and removed_count < 2:
+            first_text = words[0]['word'].strip().lower()
+            clean_word = ''.join(c for c in first_text if c.isalnum())
+            
+            if clean_word in BAD_STARTERS:
+                # Só remove se não deixar o vídeo curto demais
+                dur = words[-1]['end'] - words[1]['start']
+                if dur >= self.min_duration:
+                    words.pop(0)
+                    removed_count += 1
+                    continue
+            break
+        return words
+
+    def _create_segment(self, segments_list, words):
+        start = words[0]['start']
+        end = words[-1]['end']
+        duration = end - start
+        text = "".join([w['word'] for w in words]).strip()
+        
+        new_seg = Segment(start=start, end=end, text=text, duration=duration, words=words)
+        segments_list.append(new_seg)

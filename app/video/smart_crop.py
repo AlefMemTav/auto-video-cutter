@@ -1,79 +1,112 @@
 import cv2
 import mediapipe as mp
+import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
 
-def get_smart_crop_x(video_path: str, start_time: float, duration: float, target_w=1080, target_h=1920) -> int:
+def get_smart_crop_coordinates(video_path, duration, segment_start, segment_end):
     """
-    Analisa o frame central do segmento e retorna a coordenada X para o corte (crop).
-    Retorna None se não achar rosto (para usar fallback centralizado).
+    Analisa o vídeo e retorna uma lista de coordenadas X (centro) para cada frame.
+    Se o MediaPipe falhar, retorna o centro estático (Fallback).
     """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logger.error("Erro ao abrir vídeo para Smart Crop.")
+        return None
+
+    # Propriedades do vídeo
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Define o alvo (9:16)
+    target_aspect = 9 / 16
+    target_width = int(height * target_aspect)
+    
+    # Centro padrão (para caso de falha)
+    default_center_x = width // 2
+
+    # Configuração do intervalo de análise (para não ler o vídeo todo à toa)
+    start_frame = int(segment_start * fps)
+    end_frame = int(segment_end * fps)
+    total_frames_to_scan = end_frame - start_frame
+    
+    mp_face_detection = None
+    face_detection = None
+    
     try:
         mp_face_detection = mp.solutions.face_detection
-        
-        # Abre o vídeo
-        cap = cv2.VideoCapture(str(video_path))
-        if not cap.isOpened():
-            logger.warning("Não foi possível abrir o vídeo para Smart Crop.")
-            return None
+        face_detection = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.6)
+        logger.info("🤖 Smart Crop: MediaPipe iniciado com sucesso.")
+    except Exception as e:
+        logger.error(f"⚠️ Erro ao iniciar MediaPipe: {e}. Usando corte centralizado padrão.")
+        # Se falhar aqui, retornamos None e o renderer deve lidar com isso, 
+        # ou retornamos um valor fixo. Vamos retornar fixo para garantir.
+        return [default_center_x] * total_frames_to_scan
 
-        # Pula para o meio do clipe para ter uma boa amostra
-        middle_time = start_time + (duration / 2)
-        # Define a posição em milissegundos
-        cap.set(cv2.CAP_PROP_POS_MSEC, middle_time * 1000)
-        
+    # Pula para o início do segmento
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+    centers = []
+    
+    # Suavização (Exponencial)
+    last_center_x = default_center_x
+    smoothing_factor = 0.1  # Quanto menor, mais suave a câmera (menos tremida)
+
+    frames_read = 0
+    
+    while cap.isOpened() and frames_read < total_frames_to_scan:
         success, image = cap.read()
         if not success:
-            logger.warning("Falha ao ler frame para Smart Crop.")
-            cap.release()
-            return None
+            break
 
-        img_h, img_w, _ = image.shape
+        frames_read += 1
         
-        # Inicializa o Detector de Face
-        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
-            # Converte para RGB (MediaPipe usa RGB, OpenCV usa BGR)
-            results = face_detection.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-            
-            if not results.detections:
-                logger.info("Nenhum rosto detectado no frame central. Usando centro padrão.")
-                cap.release()
-                return None
+        # Otimização: Analisar 1 a cada 2 ou 3 frames para ganhar velocidade
+        # Mas para suavidade perfeita, analisamos todos ou interpolamos.
+        # Vamos analisar todos por enquanto.
 
-            # Pega o primeiro rosto (ou o mais confiável)
-            # O MediaPipe retorna bounding box relativa (0.0 a 1.0)
-            detection = results.detections[0]
-            bbox = detection.location_data.relative_bounding_box
-            
-            # Centro do rosto (0.0 a 1.0)
-            face_center_x_rel = bbox.xmin + (bbox.width / 2)
-            
-            # --- CÁLCULO DO CROP ---
-            # O vídeo será escalado para ter altura 1920.
-            # Qual será a largura escalada?
-            # Se original é 1920x1080 (16:9), ao escalar altura pra 1920:
-            scale_factor = target_h / img_h
-            scaled_w = int(img_w * scale_factor)
-            
-            # Onde está o centro do rosto na imagem escalada (em pixels)?
-            face_center_x_px = int(face_center_x_rel * scaled_w)
-            
-            # Queremos que esse ponto seja o centro do nosso crop de 1080px
-            # X_inicial = Centro_Rosto - (Metade_da_Largura_Do_Crop)
-            crop_x = face_center_x_px - (target_w // 2)
-            
-            # Correção de Limites (Não pode sair da tela)
-            # Não pode ser menor que 0
-            if crop_x < 0: crop_x = 0
-            # Não pode ser maior que (Largura_Total - Largura_Crop)
-            if crop_x > (scaled_w - target_w): crop_x = scaled_w - target_w
-            
-            logger.info(f"Smart Crop: Rosto em {face_center_x_rel:.2f}. Crop X calculado: {crop_x}")
-            
-            cap.release()
-            return crop_x
+        current_center = last_center_x
 
-    except Exception as e:
-        logger.error(f"Erro no Smart Crop: {e}")
-        return None
+        try:
+            # Converte BGR para RGB
+            image.flags.writeable = False
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = face_detection.process(image_rgb)
+            
+            if results.detections:
+                # Pega o maior rosto (maior score)
+                best_detection = max(results.detections, key=lambda d: d.score[0])
+                
+                # Bounding Box relativa (0.0 a 1.0)
+                bboxC = best_detection.location_data.relative_bounding_box
+                
+                # Calcula o centro do rosto em pixels
+                center_x_pixel = int((bboxC.xmin + bboxC.width / 2) * width)
+                
+                # Atualiza o alvo
+                current_center = center_x_pixel
+            
+        except Exception:
+            # Se der erro num frame específico, mantém o anterior
+            pass
+        
+        # Aplica suavização para a câmera não "pular"
+        smoothed_x = int(last_center_x + (current_center - last_center_x) * smoothing_factor)
+        
+        # Garante que o corte não saia da tela
+        # Margem esquerda mínima: metade da largura do crop
+        half_crop = target_width // 2
+        smoothed_x = max(half_crop, min(smoothed_x, width - half_crop))
+        
+        centers.append(smoothed_x)
+        last_center_x = smoothed_x
+
+    cap.release()
+    
+    # Se não processou nada (erro grave), devolve lista com centro padrão
+    if not centers:
+        return [default_center_x] * total_frames_to_scan
+
+    return centers

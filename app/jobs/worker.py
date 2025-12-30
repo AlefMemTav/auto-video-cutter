@@ -50,7 +50,7 @@ def process_video_pipeline(video_source: str, job_id: str = None, options: dict 
     try:
         # 1. Ingestão
         logger.info(f"--- ETAPA 1: INGESTÃO ---")
-        update_progress(job_id, 10, "Baixando vídeo...")
+        update_progress(job_id, 10, "Recebendo vídeo...")
         ingest_video(video_source, job_folder)
 
         # 2. Audio

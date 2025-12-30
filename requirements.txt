@@ -1,24 +1,35 @@
-# Core
-pydantic-settings==2.2.1
-python-dotenv==1.0.1
-requests==2.32.3
-
-# Media Processing
-yt-dlp
-ffmpeg-python==0.2.0
-faster-whisper==1.0.3
-
-# Computer Vision
-mediapipe
-opencv-python-headless
-
-# Queue and Jobs
-redis==5.0.1
-rq==1.16.2
-async-timeout==4.0.3
-ctranslate2==4.4.0
-
-# Web Framework
-streamlit
+# Core & Utils
+pydantic-settings
+python-dotenv
+requests
 watchdog
 Pillow
+numpy
+
+# Media Downloading & Processing
+yt-dlp
+ffmpeg-python
+moviepy
+
+# AI & Transcription (Faster Whisper)
+faster-whisper
+ctranslate2
+
+# Computer Vision (Smart Crop)
+mediapipe==0.10.9
+opencv-python-headless
+
+# Machine Learning Core
+torch
+torchvision
+torchaudio
+nvidia-cudnn-cu12
+nvidia-cublas-cu12
+
+# Queue & Jobs
+redis
+rq
+async-timeout
+
+# Web UI
+streamlit

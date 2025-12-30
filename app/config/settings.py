@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     
     # --- WHISPER ---
     WHISPER_MODEL: str = "small" # small, medium, large-v2
-    WHISPER_DEVICE: str = "cuda"   # "cuda" se tiver NVIDIA, "cpu" se não
+    WHISPER_DEVICE: str = "auto"   # "cuda" se tiver NVIDIA, "cpu" se não
     WHISPER_COMPUTE_TYPE: str = "int8"  # float16, int8_float16, int8
     
     # --- REDIS ---
